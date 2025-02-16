@@ -1,0 +1,90 @@
+#!/bin/bash
+# Ultimate AI System Setup Script
+# Installs AI models, backend services, and automation tools
+
+set -e
+
+# Update System
+sudo apt update && sudo apt upgrade -y
+
+# Install Core Dependencies
+sudo apt install -y curl git wget python3 python3-venv python3-pip build-essential \
+    apache2 php libapache2-mod-php mysql-server php-mysql redis \
+    nginx postgresql postgresql-contrib php-fpm supervisor docker.io
+
+# Enable Services
+sudo systemctl enable --now apache2 mysql redis postgresql nginx docker
+
+# Install AI Environment
+mkdir -p ~/ai_system
+cd ~/ai_system
+python3 -m venv venv
+source venv/bin/activate
+
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install transformers accelerate sentencepiece langchain openai
+
+# Download AI Model (DeepSeek-R1 32B or Best Alternative)
+git clone https://huggingface.co/deepseek-ai/deepseek-llm-32b-base
+
+# Install AI Agents
+git clone https://github.com/Significant-Gravitas/AutoGPT.git
+git clone https://github.com/OpenDevin/OpenDevin.git
+
+# Set Up AI API Server (FastAPI for AI Inference)
+mkdir -p ~/ai_system/api
+cd ~/ai_system/api
+cat <<EOL > app.py
+from fastapi import FastAPI
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+
+app = FastAPI()
+model_name = "deepseek-ai/deepseek-llm-32b-base"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+
+@app.get("/generate")
+def generate(text: str):
+    inputs = tokenizer(text, return_tensors="pt").to("cuda")
+    outputs = model.generate(**inputs, max_length=200)
+    return {"response": tokenizer.decode(outputs[0], skip_special_tokens=True)}
+EOL
+
+pip install fastapi uvicorn
+nohup uvicorn app:app --host 0.0.0.0 --port 8000 &
+
+# Set Up Docker for Backend (Optional)
+mkdir -p ~/ai_system/docker
+cd ~/ai_system/docker
+cat <<EOL > docker-compose.yml
+version: '3.8'
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: aiuser
+      POSTGRES_PASSWORD: aistrongpassword
+      POSTGRES_DB: aidb
+    ports:
+      - "5432:5432"
+  web:
+    image: php:apache
+    volumes:
+      - ./html:/var/www/html
+    ports:
+      - "80:80"
+EOL
+
+# Run Docker Services (Optional)
+# docker-compose up -d
+
+# Final Message
+clear
+echo "✅ Ultimate AI System Setup Complete!"
+echo "🌐 API running at http://localhost:8000/generate?text=Hello"
+echo "🔧 Apache, PHP, MySQL, PostgreSQL, Redis installed and running."
+echo "🚀 DeepSeek 32B and AI agents installed."
+echo "💡 Optional: Run 'docker-compose up -d' inside ~/ai_system/docker to launch backend in Docker."
+echo "🔄 Reboot recommended before using the AI system."
